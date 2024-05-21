@@ -1,3 +1,3 @@
 # `koopa`
 
-Copy/paste with superpowers.
+A copy/paste tool with superpowers.
