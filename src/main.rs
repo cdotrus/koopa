@@ -1,3 +1,6 @@
+
+use koopa::help;
+
 fn main() {
-    println!("Hello, world!");
+    println!("{}", help::SHORT_HELP);
 }

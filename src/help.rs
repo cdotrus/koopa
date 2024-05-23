@@ -1,10 +1,4 @@
-# `koopa`
-
-A copy/paste tool with superpowers.
-
-## Usage
-
-```
+pub const SHORT_HELP: &str = "\
 Koopa is a copy/paste tool with superpowers.
 
 Usage:
@@ -21,4 +15,4 @@ Options:
     --verbose       use verbose output
 
 Use 'kp --help --verbose' for more information about koopa.
-```
+";
