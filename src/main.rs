@@ -1,6 +1,7 @@
+use cliproc::{Cli, ExitCode};
+use koopa::Koopa;
+use std::env;
 
-use koopa::help;
-
-fn main() {
-    println!("{}", help::SHORT_HELP);
+fn main() -> ExitCode {
+    Cli::default().parse(env::args()).go::<Koopa>()
 }
