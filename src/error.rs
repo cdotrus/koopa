@@ -4,4 +4,8 @@ use std::path::PathBuf;
 pub enum Error {
     #[error("destination {0:?} already exists")]
     DestinationExists(PathBuf),
+    #[error("missing '=' sign")]
+    VariableParseError,
+    #[error("destination base path {0:?} is does not exist")]
+    DestinationMissingDirectories(PathBuf),
 }
