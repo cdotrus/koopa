@@ -6,7 +6,7 @@ use std::{collections::HashMap, str::FromStr};
 
 pub const KEY_PREFIX: &str = "koopa.";
 
-#[derive(Debug, Eq, Clone)]
+#[derive(Debug, Eq, Clone, PartialOrd, Ord)]
 pub struct Key(String);
 
 impl Key {
@@ -109,6 +109,12 @@ impl From<String> for Value {
     }
 }
 
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Shell {
     key: Key,
@@ -192,8 +198,8 @@ impl ShellMap {
         });
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, Key, Value> {
-        self.inner.iter()
+    pub fn inner(&self) -> &HashMap<Key, Value> {
+        &self.inner
     }
 }
 

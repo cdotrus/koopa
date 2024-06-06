@@ -81,11 +81,15 @@ impl Config {
             .collect()
     }
 
-    pub fn get_sources(&self) -> Vec<PathBuf> {
+    pub fn get_sources(&self) -> Vec<(PathBuf, PathBuf)> {
         let mut entries = Vec::new();
         let _ = Self::visit_dirs(&self.root, &mut entries);
         entries.sort();
+        // compile into pairs with relative path and full path
         entries
+            .into_iter()
+            .map(|f| (f.strip_prefix(&self.root).unwrap().to_path_buf(), f))
+            .collect()
     }
 
     fn visit_dirs(dir: &Path, cb: &mut Vec<PathBuf>) -> io::Result<()> {

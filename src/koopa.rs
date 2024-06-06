@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::shell::{self, Key};
 use cliproc::{cli, proc, stage::*};
 use cliproc::{Arg, Cli, Command, Help};
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -79,7 +80,7 @@ impl Command for Koopa {
             )]));
         }
 
-        let mut koopa_sources: Vec<PathBuf> = Vec::new();
+        let mut koopa_sources: HashMap<PathBuf, PathBuf> = HashMap::new();
 
         // load configurations and shells from files (red shells)
         {
@@ -93,7 +94,7 @@ impl Command for Koopa {
                         resolved_src = name;
                     }
                     shells.merge(ShellMap::from(&home_config.get_shells()));
-                    koopa_sources.append(&mut home_config.get_sources());
+                    koopa_sources.extend(home_config.get_sources().into_iter());
                 }
             }
 
@@ -111,7 +112,7 @@ impl Command for Koopa {
                         resolved_src = name;
                     }
                     shells.merge(ShellMap::from(&work_config.get_shells()));
-                    koopa_sources.append(&mut work_config.get_sources());
+                    koopa_sources.extend(work_config.get_sources().into_iter());
                 }
             }
 
@@ -132,13 +133,25 @@ impl Command for Koopa {
         if self.list == true {
             println!("Files:");
             // print the source files from .koopa
-            koopa_sources.iter().for_each(|p| println!("{:?}", p));
+            let key_order: Vec<&PathBuf> = {
+                let mut arr: Vec<&PathBuf> = koopa_sources.keys().collect();
+                arr.sort();
+                arr
+            };
+            key_order
+                .iter()
+                .for_each(|&k| println!("{} -> {:?}", k.display(), koopa_sources.get(k).unwrap()));
             println!();
             println!("Shells:");
             // print the shells
-            shells
+            let key_order: Vec<&Key> = {
+                let mut arr: Vec<&Key> = shells.inner().keys().collect();
+                arr.sort();
+                arr
+            };
+            key_order
                 .iter()
-                .for_each(|(k, v)| println!("{} -> \"{}\"", k, v.as_str()));
+                .for_each(|&k| println!("{} -> \"{}\"", k, shells.get(k).unwrap()));
             println!();
             return Ok(());
         }
