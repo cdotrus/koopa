@@ -11,4 +11,5 @@ path = "./src/main.rs"
 
 [dependencies]
 cliproc = "2.0"
+colored = "2"
 thiserror = "1.0"

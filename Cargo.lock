@@ -26,6 +26,7 @@ name = "koopa"
 version = "0.1.0"
 dependencies = [
  "cliproc",
+ "colored",
  "thiserror",
 ]
 
