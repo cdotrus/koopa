@@ -55,11 +55,17 @@ impl Command for Koopa {
                 .unwrap_or_default(),
             src: match list | version {
                 false => cli.require(Arg::positional("src"))?,
-                true => PathBuf::new(),
+                true => {
+                    let _ = cli.require::<PathBuf>(Arg::positional("src"));
+                    PathBuf::new()
+                }
             },
             dest: match list | version {
                 false => cli.require(Arg::positional("dest"))?,
-                true => PathBuf::new(),
+                true => {
+                    let _ = cli.require::<PathBuf>(Arg::positional("dest"));
+                    PathBuf::new()
+                }
             },
         })
     }
@@ -267,17 +273,18 @@ impl Koopa {
         let mut stream = text.char_indices();
         let mut line_no: usize = 1;
         let mut col_no: usize = 1;
+        let mut last_linebreak: Option<isize> = None;
         while let Some((i, c)) = stream.next() {
             // state transitions
             if c == '\n' {
                 line_no += 1;
-                col_no = 1;
+                last_linebreak = Some(i as isize);
             }
             match state {
                 State::Normal => {
                     result.push(c);
                     if c == '{' {
-                        col_no = i + 1;
+                        col_no = (i as isize - last_linebreak.unwrap_or(-1)) as usize;
                         state = State::L1
                     }
                 }
@@ -313,7 +320,19 @@ impl Koopa {
                         }
                         // replace the variable with its value
                         match shells.get(&key) {
-                            Some(val) => result.push_str(val.as_str()),
+                            // multi-line values should maintain the same indentation
+                            Some(val) => {
+                                let indentation = if col_no == 0 { 0 } else { col_no - 1 };
+                                let mut lines = val.as_str().split('\n');
+                                result.push_str(lines.next().unwrap());
+                                while let Some(line) = lines.next() {
+                                    result.push_str(&format!(
+                                        "\n{}{}",
+                                        (0..indentation).map(|_| " ").collect::<String>(),
+                                        line
+                                    ));
+                                }
+                            }
                             None => {
                                 // make sure we know this is a missing key if recognized
                                 if key.is_koopa_key() == true {
@@ -405,6 +424,52 @@ mod tests {
         assert_eq!(
             Koopa::translate(text, &shells, false, false),
             Err(Error::KeyUnknown(Key::from_str("koopa.foo").unwrap(), 1, 7))
+        );
+    }
+
+    #[test]
+    fn ut_translate_text_multiline_value() {
+        let text = "hello {{ koopa.multi }} and all!";
+        let mut shells = ShellMap::new();
+        shells.insert(Shell::with(
+            String::from("koopa.multi"),
+            String::from("earth\nvenus\nmars"),
+        ));
+        assert_eq!(
+            Koopa::translate(text, &shells, true, false).unwrap(),
+            "hello earth
+      venus
+      mars and all!"
+        );
+
+        let text = "hello {{ koopa.multi }} and all!";
+        let mut shells = ShellMap::new();
+        shells.insert(Shell::with(
+            String::from("koopa.multi"),
+            String::from("earth\nvenus\nmars\n\n"),
+        ));
+        assert_eq!(
+            Koopa::translate(text, &shells, true, false).unwrap(),
+            "hello earth
+      venus
+      mars
+      
+       and all!"
+        );
+
+        let text = "hello\n{{ koopa.multi }} and all!";
+        let mut shells = ShellMap::new();
+        shells.insert(Shell::with(
+            String::from("koopa.multi"),
+            String::from("earth\n venus\nmars\n"),
+        ));
+        assert_eq!(
+            Koopa::translate(text, &shells, true, false).unwrap(),
+            "hello
+earth
+ venus
+mars
+ and all!"
         );
     }
 }
