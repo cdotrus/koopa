@@ -1,11 +1,12 @@
 use super::Error;
-use std::fmt::Debug;
+use serde::Deserialize;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::{collections::HashMap, str::FromStr};
 
-const KEY_PREFIX: &str = "koopa.";
+pub const KEY_PREFIX: &str = "koopa.";
 
-#[derive(Eq, Clone)]
+#[derive(Debug, Eq, Clone)]
 pub struct Key(String);
 
 impl Key {
@@ -33,6 +34,39 @@ impl Key {
     pub fn is_koopa_key(&self) -> bool {
         self.as_internal_repr().starts_with(KEY_PREFIX)
     }
+
+    /// Transforms the given key into a koopa key, if not already.
+    pub fn into_koopa_key(self) -> Self {
+        match self.is_koopa_key() {
+            true => self,
+            false => Self(format!("{}{}", KEY_PREFIX, self.0)),
+        }
+    }
+
+    /// Verifies the given key is a valid representation by using the
+    /// [FromStr] trait.
+    pub fn validate(&self) -> Option<Error> {
+        Self::from_str(&self.0).err()
+    }
+}
+
+impl FromStr for Key {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let word_count = s.split_whitespace().into_iter().count();
+        if word_count > 1 {
+            return Err(Error::KeyContainsWhitespace(s.to_string()));
+        }
+        if s.contains('\n') == true {
+            return Err(Error::KeyContainsNewline(s.to_string()));
+        }
+        let dot_count = s.chars().filter(|c| c == &'.').count();
+        if dot_count > 1 {
+            return Err(Error::KeyContainsMoreDots(s.to_string()));
+        }
+        Ok(Self(s.to_string()))
+    }
 }
 
 impl Hash for Key {
@@ -42,7 +76,7 @@ impl Hash for Key {
     }
 }
 
-impl Debug for Key {
+impl Display for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{{{{}}}}}", self.0)
     }
@@ -54,19 +88,7 @@ impl PartialEq for Key {
     }
 }
 
-impl From<&str> for Key {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
-
-impl From<String> for Key {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Deserialize)]
 pub struct Value(String);
 
 impl Value {
@@ -115,13 +137,22 @@ impl Shell {
     }
 }
 
+impl From<(Key, Value)> for Shell {
+    fn from(value: (Key, Value)) -> Self {
+        Self {
+            key: value.0,
+            value: value.1,
+        }
+    }
+}
+
 impl FromStr for Shell {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split_once('=') {
             Some((k, v)) => Ok(Self {
-                key: Key::from(format!("{}{}", KEY_PREFIX, k)),
+                key: Key::from_str(&format!("{}{}", KEY_PREFIX, k))?,
                 value: Value::from(v),
             }),
             None => Err(Error::ShellParseMissingEq),
@@ -149,6 +180,17 @@ impl ShellMap {
     pub fn get(&self, key: &Key) -> Option<&Value> {
         self.inner.get(key)
     }
+
+    /// Inserts existing shell entries into the current map, overwriting entries
+    /// if they already existed.
+    pub fn merge(&mut self, shells: ShellMap) {
+        shells.inner.into_iter().for_each(|(key, value)| {
+            self.insert(Shell {
+                key: key,
+                value: value,
+            });
+        });
+    }
 }
 
 impl From<&Vec<Shell>> for ShellMap {
@@ -158,5 +200,72 @@ impl From<&Vec<Shell>> for ShellMap {
             shell_map.insert(shell.clone());
         });
         shell_map
+    }
+}
+
+use serde::de;
+use std::fmt;
+
+impl<'de> Deserialize<'de> for Key {
+    fn deserialize<D>(deserializer: D) -> Result<Key, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct LayerVisitor;
+
+        impl<'de> de::Visitor<'de> for LayerVisitor {
+            type Value = Key;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a shell key")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match Key::from_str(v) {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(de::Error::custom(e)),
+                }
+            }
+        }
+
+        deserializer.deserialize_map(LayerVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ut_parse_key_ok() {
+        let s = "helloworld";
+        assert_eq!(Key::from_str(s), Ok(Key(s.to_string())));
+
+        let s = "   mykey     ";
+        assert_eq!(Key::from_str(s), Ok(Key(s.to_string())));
+        let s = "koopa.name";
+        assert_eq!(Key::from_str(s), Ok(Key(s.to_string())));
+    }
+
+    #[test]
+    fn ut_parse_key_err() {
+        let s = "hello world";
+        assert_eq!(
+            Key::from_str(s),
+            Err(Error::KeyContainsWhitespace(s.to_string()))
+        );
+        let s = "mykey\n";
+        assert_eq!(
+            Key::from_str(s),
+            Err(Error::KeyContainsNewline(s.to_string()))
+        );
+        let s = "koopa.nested.key";
+        assert_eq!(
+            Key::from_str(s),
+            Err(Error::KeyContainsMoreDots(s.to_string()))
+        );
     }
 }

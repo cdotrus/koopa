@@ -3,10 +3,10 @@
 use super::error::Error;
 use super::help;
 use super::shell::{Shell, ShellMap};
-use crate::shell::Key;
+use crate::config::Config;
+use crate::shell::{self, Key};
 use cliproc::{cli, proc, stage::*};
 use cliproc::{Arg, Cli, Command, Help};
-use colored::Colorize;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -19,25 +19,34 @@ pub struct Koopa {
     dest: PathBuf,
     force: bool,
     verbose: bool,
+    ignore_home: bool,
+    ignore_work: bool,
     shells: Vec<Shell>,
 }
 
 impl Command for Koopa {
     fn interpret(cli: &mut Cli<Memory>) -> cli::Result<Self> {
-        cli.help(Help::with(help::SHORT_HELP))?;
-        let verbose = cli.check(Arg::flag("verbose"))?;
-        if verbose == true {
-            cli.help(Help::with(help::LONG_HELP))?;
+        // logic for interface priority to user manual and version shortcuts
+        {
+            cli.help(Help::with(help::SHORT_HELP))?;
+            let verbose = cli.check(Arg::flag("verbose"))?;
+            if verbose == true {
+                cli.help(Help::with(help::LONG_HELP))?;
+            }
+            cli.raise_help()?;
+            cli.lower_help();
+
+            cli.help(Help::with(help::VERSION).flag("version"))?;
+            cli.raise_help()?;
+            cli.lower_help();
         }
-        cli.raise_help()?;
-        cli.lower_help();
-        cli.help(Help::with(help::VERSION).flag("version"))?;
-        cli.raise_help()?;
-        cli.lower_help();
+
         cli.help(Help::with(help::SHORT_HELP))?;
         Ok(Self {
-            verbose: verbose,
+            verbose: cli.check(Arg::flag("verbose"))?,
             force: cli.check(Arg::flag("force"))?,
+            ignore_home: cli.check(Arg::flag("ignore-home"))?,
+            ignore_work: cli.check(Arg::flag("ignore-work"))?,
             shells: cli
                 .get_all(Arg::option("shell").switch('s').value("key=value"))?
                 .unwrap_or_default(),
@@ -46,9 +55,57 @@ impl Command for Koopa {
         })
     }
 
-    fn execute(self) -> proc::Result {
-        // build the variable map
-        let shells = ShellMap::from(&self.shells);
+    fn execute(mut self) -> proc::Result {
+        // start with the standard shells (blue shells)
+        let mut shells = ShellMap::from(&vec![Shell::with(
+            format!("{}{}", shell::KEY_PREFIX, "name"),
+            Self::find_filename(&self.dest)?,
+        )]);
+
+        // load configurations and shells from files (red shells)
+        {
+            let mut resolved_src = self.src.clone();
+
+            // home directory (if exists)
+            if self.ignore_home == false {
+                if let Some(home) = home::home_dir() {
+                    let home_config = Config::new(home)?;
+                    if let Some(name) = home_config.resolve_source(&self.src) {
+                        resolved_src = name;
+                    }
+                    shells.merge(ShellMap::from(&home_config.get_shells()));
+                }
+            }
+
+            // current working directory and its parent directories
+            if self.ignore_work == false {
+                let mut working_dirs = vec![std::env::current_dir()?];
+                while let Some(p) = working_dirs.last().unwrap().parent() {
+                    working_dirs.push(p.to_path_buf());
+                }
+                working_dirs.reverse();
+
+                for dir in working_dirs {
+                    let working_config = Config::new(dir)?;
+                    if let Some(name) = working_config.resolve_source(&self.src) {
+                        resolved_src = name;
+                    }
+                    shells.merge(ShellMap::from(&working_config.get_shells()));
+                }
+            }
+            if self.src != resolved_src {
+                help::info(
+                    format!("resolved source path to {:?}", resolved_src),
+                    self.verbose,
+                );
+            }
+            self.src = resolved_src;
+        }
+
+        // load shells from command-line (green shells)
+        shells.merge(ShellMap::from(&self.shells));
+
+        // run the command
         self.run(&shells)
     }
 }
@@ -59,11 +116,25 @@ impl Koopa {
         Self::has_permission(&self.dest, self.force)?;
         // perform the copy operation
         let bytes_copied = Self::copy(&self.src, &self.dest, shells, self.force, self.verbose)?;
-        if self.verbose == true {
-            // provide information back to the user that the operation was a success
-            println!("info: successfully koopa'ed {} bytes", bytes_copied);
-        }
+        // provide information back to the user that the operation was a success
+        help::info(
+            format!(
+                "successfully koopa'ed {} bytes to {:?}",
+                bytes_copied, self.dest
+            ),
+            self.verbose,
+        );
         Ok(())
+    }
+
+    /// Attempts to acquire the string of the file name, minus its extension.
+    fn find_filename(p: &PathBuf) -> Result<String, Error> {
+        if let Some(p) = p.file_name() {
+            if let Some(p) = p.to_str() {
+                return Ok(String::from(p.split('.').into_iter().next().unwrap()));
+            }
+        }
+        Err(Error::DestinationMissingFileName(p.clone()))
     }
 
     /// Peforms the copy operation, moving bytes from `src` to `dest` while replacing
@@ -76,11 +147,19 @@ impl Koopa {
         verbose: bool,
     ) -> Result<usize, AnyError> {
         // read contents from source
-        let read_words = std::fs::read_to_string(&src)?;
+        let read_words = match std::fs::read_to_string(&src) {
+            Ok(r) => r,
+            Err(e) => return Err(Error::FileRead(src.clone(), Error::lowerize(e.to_string())))?,
+        };
         // translate any variables within the text
         let write_words = match Self::translate(&read_words, shells, force, verbose) {
             Ok(r) => r,
-            Err(e) => return Err(Error::TranslationFailed(src.clone(), e.to_string()))?,
+            Err(e) => {
+                return Err(Error::TranslationFailed(
+                    src.clone(),
+                    Error::lowerize(e.to_string()),
+                ))?
+            }
         };
 
         let working_path = Path::new(".");
@@ -170,6 +249,17 @@ impl Koopa {
                 State::R1 => match c {
                     '}' => {
                         key.pop();
+                        if key.is_koopa_key() == true {
+                            // make sure this key being read is valid
+                            if let Some(e) = key.validate() {
+                                return Err(Error::KeyInvalid(
+                                    key.clone(),
+                                    line_no,
+                                    col_no,
+                                    Error::lowerize(e.to_string()),
+                                ));
+                            }
+                        }
                         // replace the variable with its value
                         match shells.get(&key) {
                             Some(val) => result.push_str(val.as_str()),
@@ -177,20 +267,19 @@ impl Koopa {
                                 // make sure we know this is a missing key if recognized
                                 if key.is_koopa_key() == true {
                                     if force == false {
-                                        return Err(Error::UnknownKey(
+                                        return Err(Error::KeyUnknown(
                                             key.clone(),
                                             line_no,
                                             col_no,
                                         ));
-                                    } else if verbose == true {
-                                        println!(
-                                            "{}: skipping unknown key {:?}",
-                                            "warning".yellow(),
-                                            key
+                                    } else {
+                                        help::warning(
+                                            format!("skipping unknown key {}", key),
+                                            verbose,
                                         );
                                     }
                                 }
-                                result.push_str(&format!("{:?}", key))
+                                result.push_str(&key.to_string())
                             }
                         }
                         // clean up the contents stored in the variable
@@ -210,6 +299,8 @@ impl Koopa {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -231,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn ut_translate_text() {
+    fn ut_translate_text_ok() {
         let text = "hello {{ koopa.foo }} and {{ koopa.bar }}!";
         let mut shells = ShellMap::new();
         shells.insert(Shell::with(
@@ -242,6 +333,18 @@ mod tests {
             Koopa::translate(text, &shells, true, false).unwrap(),
             "hello world and {{ koopa.bar }}!"
         );
+
+        let text = "hello {{ koopa.foo }} and {{ koopa.bar }}!";
+        let mut shells = ShellMap::new();
+        shells.insert(Shell::with(String::from("koopa.bar"), String::from("moon")));
+        shells.insert(Shell::with(
+            String::from("koopa.foo"),
+            String::from("world"),
+        ));
+        assert_eq!(
+            Koopa::translate(text, &shells, true, false).unwrap(),
+            "hello world and moon!"
+        );
     }
 
     #[test]
@@ -250,7 +353,7 @@ mod tests {
         let shells = ShellMap::new();
         assert_eq!(
             Koopa::translate(text, &shells, false, false),
-            Err(Error::UnknownKey(Key::from("koopa.foo"), 1, 7))
+            Err(Error::KeyUnknown(Key::from_str("koopa.foo").unwrap(), 1, 7))
         );
     }
 }

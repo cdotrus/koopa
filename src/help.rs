@@ -23,3 +23,19 @@ Use 'kp --help --verbose' for more information about koopa.
 pub const LONG_HELP: &str = "\
 Koopa is a copy/paste tool with superpowers.
 ";
+
+use colored::Colorize;
+
+/// Displays the message `msg` to stdout as a warning.
+pub fn warning(msg: String, verbose: bool) {
+    if verbose == true {
+        println!("{}: {}", "warning".yellow(), msg);
+    }
+}
+
+/// Displays the message `msg` to stdout as information.
+pub fn info(msg: String, verbose: bool) {
+    if verbose == true {
+        println!("info: {}", msg);
+    }
+}
