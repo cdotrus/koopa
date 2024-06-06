@@ -1,5 +1,6 @@
 [package]
 name = "koopa"
+description = "A copy/paste tool with superpowers"
 version = "0.1.0"
 edition = "2021"
 

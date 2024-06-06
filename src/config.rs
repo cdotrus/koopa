@@ -3,7 +3,11 @@ use crate::{
     Error,
 };
 use serde::Deserialize;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 pub const CONFIG_DIR: &str = ".koopa";
 pub const CONFIG_FILE: &str = "shells.toml";
@@ -75,5 +79,29 @@ impl Config {
             .into_iter()
             .map(|(k, v)| Shell::from((k.into_koopa_key(), v)))
             .collect()
+    }
+
+    pub fn get_sources(&self) -> Vec<PathBuf> {
+        let mut entries = Vec::new();
+        let _ = Self::visit_dirs(&self.root, &mut entries);
+        entries.sort();
+        entries
+    }
+
+    fn visit_dirs(dir: &Path, cb: &mut Vec<PathBuf>) -> io::Result<()> {
+        if dir.is_dir() {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    Self::visit_dirs(&path, cb)?;
+                } else {
+                    if entry.file_name() != CONFIG_FILE {
+                        cb.push(entry.path());
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }

@@ -39,7 +39,7 @@ impl Key {
     pub fn into_koopa_key(self) -> Self {
         match self.is_koopa_key() {
             true => self,
-            false => Self(format!("{}{}", KEY_PREFIX, self.0)),
+            false => Self(format!(" {}{} ", KEY_PREFIX, self.0)),
         }
     }
 
@@ -152,7 +152,7 @@ impl FromStr for Shell {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split_once('=') {
             Some((k, v)) => Ok(Self {
-                key: Key::from_str(&format!("{}{}", KEY_PREFIX, k))?,
+                key: Key::from_str(k)?.into_koopa_key(),
                 value: Value::from(v),
             }),
             None => Err(Error::ShellParseMissingEq),
@@ -190,6 +190,10 @@ impl ShellMap {
                 value: value,
             });
         });
+    }
+
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, Key, Value> {
+        self.inner.iter()
     }
 }
 

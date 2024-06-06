@@ -19,6 +19,8 @@ pub struct Koopa {
     dest: PathBuf,
     force: bool,
     verbose: bool,
+    version: bool,
+    list: bool,
     ignore_home: bool,
     ignore_work: bool,
     shells: Vec<Shell>,
@@ -27,40 +29,57 @@ pub struct Koopa {
 impl Command for Koopa {
     fn interpret(cli: &mut Cli<Memory>) -> cli::Result<Self> {
         // logic for interface priority to user manual and version shortcuts
-        {
-            cli.help(Help::with(help::SHORT_HELP))?;
-            let verbose = cli.check(Arg::flag("verbose"))?;
-            if verbose == true {
-                cli.help(Help::with(help::LONG_HELP))?;
-            }
-            cli.raise_help()?;
-            cli.lower_help();
 
-            cli.help(Help::with(help::VERSION).flag("version"))?;
-            cli.raise_help()?;
-            cli.lower_help();
+        cli.help(Help::with(help::SHORT_HELP))?;
+        let verbose = cli.check(Arg::flag("verbose"))?;
+        if verbose == true {
+            cli.help(Help::with(help::LONG_HELP))?;
         }
+        cli.raise_help()?;
+        cli.lower_help();
+
+        let version = cli.check(Arg::flag("version"))?;
+        let list = cli.check(Arg::flag("list"))?;
 
         cli.help(Help::with(help::SHORT_HELP))?;
         Ok(Self {
             verbose: cli.check(Arg::flag("verbose"))?,
+            version: cli.check(Arg::flag("version"))?,
             force: cli.check(Arg::flag("force"))?,
-            ignore_home: cli.check(Arg::flag("ignore-home"))?,
+            list: cli.check(Arg::flag("list"))?,
             ignore_work: cli.check(Arg::flag("ignore-work"))?,
+            ignore_home: cli.check(Arg::flag("ignore-home"))?,
             shells: cli
                 .get_all(Arg::option("shell").switch('s').value("key=value"))?
                 .unwrap_or_default(),
-            src: cli.require(Arg::positional("src"))?,
-            dest: cli.require(Arg::positional("dest"))?,
+            src: match list | version {
+                false => cli.require(Arg::positional("src"))?,
+                true => PathBuf::new(),
+            },
+            dest: match list | version {
+                false => cli.require(Arg::positional("dest"))?,
+                true => PathBuf::new(),
+            },
         })
     }
 
     fn execute(mut self) -> proc::Result {
+        if self.version == true {
+            println!("{}", help::VERSION);
+            return Ok(());
+        }
+
+        let mut shells = ShellMap::new();
+
         // start with the standard shells (blue shells)
-        let mut shells = ShellMap::from(&vec![Shell::with(
-            format!("{}{}", shell::KEY_PREFIX, "name"),
-            Self::find_filename(&self.dest)?,
-        )]);
+        if self.list == false {
+            shells.merge(ShellMap::from(&vec![Shell::with(
+                format!("{}{}", shell::KEY_PREFIX, "name"),
+                Self::find_filename(&self.dest)?,
+            )]));
+        }
+
+        let mut koopa_sources: Vec<PathBuf> = Vec::new();
 
         // load configurations and shells from files (red shells)
         {
@@ -74,36 +93,55 @@ impl Command for Koopa {
                         resolved_src = name;
                     }
                     shells.merge(ShellMap::from(&home_config.get_shells()));
+                    koopa_sources.append(&mut home_config.get_sources());
                 }
             }
 
             // current working directory and its parent directories
             if self.ignore_work == false {
-                let mut working_dirs = vec![std::env::current_dir()?];
-                while let Some(p) = working_dirs.last().unwrap().parent() {
-                    working_dirs.push(p.to_path_buf());
+                let mut work_dirs = vec![std::env::current_dir()?];
+                while let Some(p) = work_dirs.last().unwrap().parent() {
+                    work_dirs.push(p.to_path_buf());
                 }
-                working_dirs.reverse();
+                work_dirs.reverse();
 
-                for dir in working_dirs {
-                    let working_config = Config::new(dir)?;
-                    if let Some(name) = working_config.resolve_source(&self.src) {
+                for dir in work_dirs {
+                    let work_config = Config::new(dir)?;
+                    if let Some(name) = work_config.resolve_source(&self.src) {
                         resolved_src = name;
                     }
-                    shells.merge(ShellMap::from(&working_config.get_shells()));
+                    shells.merge(ShellMap::from(&work_config.get_shells()));
+                    koopa_sources.append(&mut work_config.get_sources());
                 }
             }
-            if self.src != resolved_src {
-                help::info(
-                    format!("resolved source path to {:?}", resolved_src),
-                    self.verbose,
-                );
+
+            if self.list == false {
+                if self.src != resolved_src {
+                    help::info(
+                        format!("resolved source path to {:?}", resolved_src),
+                        self.verbose,
+                    );
+                }
+                self.src = resolved_src;
             }
-            self.src = resolved_src;
         }
 
         // load shells from command-line (green shells)
         shells.merge(ShellMap::from(&self.shells));
+
+        if self.list == true {
+            println!("Files:");
+            // print the source files from .koopa
+            koopa_sources.iter().for_each(|p| println!("{:?}", p));
+            println!();
+            println!("Shells:");
+            // print the shells
+            shells
+                .iter()
+                .for_each(|(k, v)| println!("{} -> \"{}\"", k, v.as_str()));
+            println!();
+            return Ok(());
+        }
 
         // run the command
         self.run(&shells)
