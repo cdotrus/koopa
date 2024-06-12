@@ -14,3 +14,10 @@ x2:
     -cargo r -- du.vhd fifo.vhd --verbose
     -cat fifo.vhd
     -rm fifo.vhd
+
+x3:
+    -cargo r -- prj-cpp ./demo -s project=demo -s user="Darth Vader"
+    -cd demo; just build
+    -cd demo; just run
+    -cd demo; just clean
+    -rm -Rf ./demo

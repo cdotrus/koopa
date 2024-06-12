@@ -1,0 +1,14 @@
+# Project: {{ koopa.project }}
+# File: justfile
+#
+# A series of common commands to build and run the C++ program.
+
+build:
+    mkdir -p ./build
+    g++ main.cpp -o ./build/{{ koopa.project }}.out
+
+run:
+    ./build/{{ koopa.project }}.out
+
+clean:
+    rm -Rf ./build

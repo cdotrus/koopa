@@ -9,7 +9,7 @@ pub enum Error {
     DestinationExists(PathBuf),
     #[error("destination {0:?} is missing a file name")]
     DestinationMissingFileName(PathBuf),
-    #[error("destination base path {0:?} is does not exist")]
+    #[error("destination base path {0:?} does not exist")]
     DestinationMissingDirectories(PathBuf),
     #[error("could not parse shell due to missing '=' character")]
     ShellParseMissingEq,

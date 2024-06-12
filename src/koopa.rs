@@ -56,14 +56,14 @@ impl Command for Koopa {
             src: match list | version {
                 false => cli.require(Arg::positional("src"))?,
                 true => {
-                    let _ = cli.require::<PathBuf>(Arg::positional("src"));
+                    let _ = cli.get::<PathBuf>(Arg::positional("src"));
                     PathBuf::new()
                 }
             },
             dest: match list | version {
                 false => cli.require(Arg::positional("dest"))?,
                 true => {
-                    let _ = cli.require::<PathBuf>(Arg::positional("dest"));
+                    let _ = cli.get::<PathBuf>(Arg::positional("dest"));
                     PathBuf::new()
                 }
             },
@@ -137,16 +137,25 @@ impl Command for Koopa {
         shells.merge(ShellMap::from(&self.shells));
 
         if self.list == true {
-            println!("Files:");
+            println!("Sources:");
             // print the source files from .koopa
             let key_order: Vec<&PathBuf> = {
                 let mut arr: Vec<&PathBuf> = koopa_sources.keys().collect();
                 arr.sort();
                 arr
             };
-            key_order
-                .iter()
-                .for_each(|&k| println!("{} -> {:?}", k.display(), koopa_sources.get(k).unwrap()));
+            key_order.iter().for_each(|&k| {
+                println!(
+                    "({}) {} -> {:?}",
+                    if koopa_sources.get(k).unwrap().is_file() {
+                        "f"
+                    } else {
+                        "d"
+                    },
+                    k.display(),
+                    koopa_sources.get(k).unwrap()
+                )
+            });
             println!();
             println!("Shells:");
             // print the shells
@@ -163,16 +172,21 @@ impl Command for Koopa {
         }
 
         // run the command
-        self.run(&shells)
+        self.run(shells)
     }
 }
 
 impl Koopa {
-    fn run(&self, shells: &ShellMap) -> Result<(), AnyError> {
+    fn run(&self, mut shells: ShellMap) -> Result<(), AnyError> {
         // ensure the data is allowed to be moved to the destination
         Self::has_permission(&self.dest, self.force)?;
+
         // perform the copy operation
-        let bytes_copied = Self::copy(&self.src, &self.dest, shells, self.force, self.verbose)?;
+        let bytes_copied = match self.src.is_file() {
+            true => Self::copy_file(&self.src, &self.dest, &shells, self.force, self.verbose)?,
+            false => Self::copy_dir(&self.src, &self.dest, &mut shells, self.force, self.verbose)?,
+        };
+
         // provide information back to the user that the operation was a success
         help::info(
             format!(
@@ -182,6 +196,89 @@ impl Koopa {
             self.verbose,
         );
         Ok(())
+    }
+
+    /// Performs the copy operation for a directory. If the function fails,
+    /// no files will be available.
+    fn copy_dir(
+        src: &PathBuf,
+        dest: &PathBuf,
+        shells: &mut ShellMap,
+        force: bool,
+        verbose: bool,
+    ) -> Result<usize, AnyError> {
+        // get all the sources
+        let mut src_files: Vec<PathBuf> = Vec::new();
+
+        match Config::visit_dirs(&src.as_path(), &mut src_files, false) {
+            Ok(_) => (),
+            Err(e) => return Err(Box::new(e))?,
+        }
+
+        // take only the files with us
+        let src_files: Vec<PathBuf> = src_files.into_iter().filter(|f| f.is_file()).collect();
+
+        // create the list of file destinations
+        let mut dest_files = Vec::new();
+        src_files
+            .iter()
+            .for_each(|f| dest_files.push(dest.join(f.strip_prefix(src).unwrap())));
+
+        let mut bytes_copied = 0;
+
+        if force == true && dest.exists() == true {
+            // remove everything within the existing destintation
+            match std::fs::remove_dir_all(&dest) {
+                Ok(_) => (),
+                Err(e) => return Err(Box::new(e))?,
+            }
+        }
+
+        // create base directory
+        match std::fs::create_dir_all(&dest) {
+            Ok(_) => (),
+            Err(e) => {
+                // remove all intermediate progress
+                match std::fs::remove_dir_all(&dest) {
+                    Ok(_) => return Err(Box::new(e))?,
+                    Err(e) => return Err(Box::new(e))?,
+                }
+            }
+        }
+
+        for i in 0..src_files.len() {
+            let src_file = src_files.get(i).unwrap();
+            let dest_file = dest_files.get(i).unwrap();
+
+            // create any missing directories for destination
+            match std::fs::create_dir_all(&dest_file.parent().unwrap()) {
+                Ok(_) => (),
+                Err(e) => {
+                    // remove all intermediate progress
+                    match std::fs::remove_dir_all(&dest) {
+                        Ok(_) => return Err(Box::new(e))?,
+                        Err(e) => return Err(Box::new(e))?,
+                    }
+                }
+            }
+            // set koopa.name for each file
+            shells.merge(ShellMap::from(&vec![Shell::with(
+                format!("{}{}", shell::KEY_PREFIX, "name"),
+                Self::find_filename(dest_file).unwrap(),
+            )]));
+
+            bytes_copied += match Self::copy_file(&src_file, &dest_file, &shells, force, verbose) {
+                Ok(b) => b,
+                Err(e) => {
+                    // remove all intermediate progress
+                    match std::fs::remove_dir_all(&dest) {
+                        Ok(_) => return Err(e),
+                        Err(e) => return Err(Box::new(e))?,
+                    }
+                }
+            }
+        }
+        Ok(bytes_copied)
     }
 
     /// Attempts to acquire the string of the file name, minus its extension.
@@ -196,7 +293,7 @@ impl Koopa {
 
     /// Peforms the copy operation, moving bytes from `src` to `dest` while replacing
     /// any known variables with their corresponding values.
-    fn copy(
+    fn copy_file(
         src: &PathBuf,
         dest: &PathBuf,
         shells: &ShellMap,

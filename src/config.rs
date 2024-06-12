@@ -62,7 +62,7 @@ impl Config {
     pub fn resolve_source(&self, p: &PathBuf) -> Option<PathBuf> {
         if p.is_relative() == true {
             let potential_path = self.root.join(p);
-            if potential_path.exists() == true && potential_path.is_file() == true {
+            if potential_path.exists() == true {
                 Some(potential_path)
             } else {
                 None
@@ -83,7 +83,7 @@ impl Config {
 
     pub fn get_sources(&self) -> Vec<(PathBuf, PathBuf)> {
         let mut entries = Vec::new();
-        let _ = Self::visit_dirs(&self.root, &mut entries);
+        let _ = Self::visit_dirs(&self.root, &mut entries, true);
         entries.sort();
         // compile into pairs with relative path and full path
         entries
@@ -92,16 +92,24 @@ impl Config {
             .collect()
     }
 
-    fn visit_dirs(dir: &Path, cb: &mut Vec<PathBuf>) -> io::Result<()> {
+    pub fn visit_dirs(dir: &Path, cb: &mut Vec<PathBuf>, skip_hidden: bool) -> io::Result<()> {
         if dir.is_dir() {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.is_dir() {
-                    Self::visit_dirs(&path, cb)?;
-                } else {
-                    if entry.file_name() != CONFIG_FILE {
+                // ignore hidden files if true
+                if skip_hidden == false
+                    || entry.file_name().to_string_lossy().starts_with('.') == false
+                {
+                    if path.is_dir() {
+                        // allow this directory to be a source
                         cb.push(entry.path());
+                        Self::visit_dirs(&path, cb, skip_hidden)?;
+                    } else {
+                        if skip_hidden == false || entry.file_name() != CONFIG_FILE {
+                            // allow this file to be a source
+                            cb.push(entry.path());
+                        }
                     }
                 }
             }
