@@ -215,16 +215,9 @@ impl Koopa {
             Err(e) => return Err(Box::new(e))?,
         }
 
-        // take only the files with us
-        let src_files: Vec<PathBuf> = src_files.into_iter().filter(|f| f.is_file()).collect();
-
-        // create the list of file destinations
-        let mut dest_files = Vec::new();
-        src_files
-            .iter()
-            .for_each(|f| dest_files.push(dest.join(f.strip_prefix(src).unwrap())));
-
-        let mut bytes_copied = 0;
+        // split into files and directories
+        let (src_files, src_dirs): (Vec<PathBuf>, Vec<PathBuf>) =
+            src_files.into_iter().partition(|f| f.is_file());
 
         if force == true && dest.exists() == true {
             // remove everything within the existing destintation
@@ -233,6 +226,18 @@ impl Koopa {
                 Err(e) => return Err(Box::new(e))?,
             }
         }
+
+        // create the list of file destinations
+        let mut dest_files = Vec::new();
+        src_files
+            .iter()
+            .for_each(|f| dest_files.push(dest.join(f.strip_prefix(src).unwrap())));
+
+        // create the list of directory destinations
+        let mut dest_dirs = Vec::new();
+        src_dirs
+            .iter()
+            .for_each(|f| dest_dirs.push(dest.join(f.strip_prefix(src).unwrap())));
 
         // create base directory
         match std::fs::create_dir_all(&dest) {
@@ -246,12 +251,10 @@ impl Koopa {
             }
         }
 
-        for i in 0..src_files.len() {
-            let src_file = src_files.get(i).unwrap();
-            let dest_file = dest_files.get(i).unwrap();
-
+        // create all directories
+        for dir in &dest_dirs {
             // create any missing directories for destination
-            match std::fs::create_dir_all(&dest_file.parent().unwrap()) {
+            match std::fs::create_dir_all(&dir) {
                 Ok(_) => (),
                 Err(e) => {
                     // remove all intermediate progress
@@ -261,6 +264,14 @@ impl Koopa {
                     }
                 }
             }
+        }
+
+        let mut bytes_copied = 0;
+
+        for i in 0..src_files.len() {
+            let src_file = src_files.get(i).unwrap();
+            let dest_file = dest_files.get(i).unwrap();
+
             // set koopa.name for each file
             shells.merge(ShellMap::from(&vec![Shell::with(
                 format!("{}{}", shell::KEY_PREFIX, "name"),
