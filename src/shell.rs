@@ -35,11 +35,25 @@ impl Key {
         self.as_internal_repr().starts_with(KEY_PREFIX)
     }
 
+    /// Accesses the name of the key without the koopa prefix.
+    pub fn get_name(&self) -> &str {
+        &self
+            .0
+            .trim()
+            .get(
+                match self.0.trim().find('.') {
+                    Some(i) => i + 1,
+                    None => 0,
+                }..,
+            )
+            .unwrap()
+    }
+
     /// Transforms the given key into a koopa key, if not already.
     pub fn into_koopa_key(self) -> Self {
         match self.is_koopa_key() {
             true => self,
-            false => Self(format!(" {}{} ", KEY_PREFIX, self.0)),
+            false => Self(format!("{}{}", KEY_PREFIX, self.0)),
         }
     }
 
@@ -62,8 +76,10 @@ impl FromStr for Key {
             return Err(Error::KeyContainsNewline(s.to_string()));
         }
         let dot_count = s.chars().filter(|c| c == &'.').count();
-        if dot_count > 1 {
+        if s.trim().starts_with(KEY_PREFIX) == true && dot_count > 1 {
             return Err(Error::KeyContainsMoreDots(s.to_string()));
+        } else if s.trim().starts_with(KEY_PREFIX) == false && dot_count > 0 {
+            return Err(Error::KeyContainsOneDot(s.to_string()));
         }
         Ok(Self(s.to_string()))
     }

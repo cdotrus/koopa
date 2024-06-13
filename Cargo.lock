@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "cliproc"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5db30a718f390b81353ff484a32b6a502b641147823f151d922faf455649c252"
+checksum = "7e25018c5fa4e6d2bcbbddefe83c41c33ef0e94a0fe40cd4de58745d88758260"
 dependencies = [
  "colored",
 ]

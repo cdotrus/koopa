@@ -25,6 +25,8 @@ pub enum Error {
     KeyContainsNewline(String),
     #[error("key \"{0}\" contains too many '.' characters (expected 1)")]
     KeyContainsMoreDots(String),
+    #[error("key \"{0}\" is not allowed to have a user-defined '.' character")]
+    KeyContainsOneDot(String),
     #[error("failed to read shell file {0:?}: {1}")]
     TomlParse(PathBuf, LastError),
     #[error("failed to read file {0:?}: {1}")]

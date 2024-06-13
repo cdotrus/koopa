@@ -24,6 +24,7 @@ pub struct Koopa {
     list: bool,
     ignore_home: bool,
     ignore_work: bool,
+    no_args: bool,
     shells: Vec<Shell>,
 }
 
@@ -41,9 +42,11 @@ impl Command for Koopa {
 
         let version = cli.check(Arg::flag("version"))?;
         let list = cli.check(Arg::flag("list"))?;
+        let no_args = cli.is_empty();
 
         cli.help(Help::with(help::SHORT_HELP))?;
         Ok(Self {
+            no_args: no_args,
             verbose: cli.check(Arg::flag("verbose"))?,
             version: cli.check(Arg::flag("version"))?,
             force: cli.check(Arg::flag("force"))?,
@@ -53,14 +56,14 @@ impl Command for Koopa {
             shells: cli
                 .get_all(Arg::option("shell").switch('s').value("key=value"))?
                 .unwrap_or_default(),
-            src: match list | version {
+            src: match list | version | no_args {
                 false => cli.require(Arg::positional("src"))?,
                 true => {
                     let _ = cli.get::<PathBuf>(Arg::positional("src"));
                     PathBuf::new()
                 }
             },
-            dest: match list | version {
+            dest: match list | version | no_args {
                 false => cli.require(Arg::positional("dest"))?,
                 true => {
                     let _ = cli.get::<PathBuf>(Arg::positional("dest"));
@@ -73,6 +76,10 @@ impl Command for Koopa {
     fn execute(mut self) -> proc::Result {
         if self.version == true {
             println!("{}", help::VERSION);
+            return Ok(());
+        }
+        if self.no_args == true {
+            println!("{}", help::SHORT_HELP);
             return Ok(());
         }
 
@@ -166,7 +173,7 @@ impl Command for Koopa {
             };
             key_order
                 .iter()
-                .for_each(|&k| println!("{} -> \"{}\"", k, shells.get(k).unwrap()));
+                .for_each(|&k| println!("(*) {} -> \"{}\"", k.get_name(), shells.get(k).unwrap()));
             println!();
             return Ok(());
         }
