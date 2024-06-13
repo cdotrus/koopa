@@ -3,7 +3,7 @@
 use super::error::Error;
 use super::help;
 use super::shell::{Shell, ShellMap};
-use crate::config::Config;
+use crate::config::{Config, IgnoreFile};
 use crate::shell::{self, Key};
 use cliproc::{cli, proc, stage::*};
 use cliproc::{Arg, Cli, Command, Help};
@@ -217,7 +217,7 @@ impl Koopa {
         // get all the sources
         let mut src_files: Vec<PathBuf> = Vec::new();
 
-        match Config::visit_dirs(&src.as_path(), &mut src_files, false) {
+        match Config::visit_dirs(&src.as_path(), &mut src_files, false, &IgnoreFile::new()) {
             Ok(_) => (),
             Err(e) => return Err(Box::new(e))?,
         }

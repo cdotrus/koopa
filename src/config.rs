@@ -10,7 +10,56 @@ use std::{
 };
 
 pub const CONFIG_DIR: &str = ".koopa";
+pub const IGNORE_FILE: &str = ".koopaignore";
 pub const CONFIG_FILE: &str = "shells.toml";
+
+use ignore::gitignore::Gitignore;
+
+#[derive(Debug)]
+pub struct IgnoreFile {
+    inner: Option<Gitignore>,
+}
+
+impl IgnoreFile {
+    pub fn new() -> Self {
+        Self { inner: None }
+    }
+
+    pub fn load(p: &PathBuf) -> Result<Self, Error> {
+        let ignore_file = p.join(IGNORE_FILE);
+        if ignore_file.exists() == true && ignore_file.is_file() == true {
+            let _ = match std::fs::read_to_string(&ignore_file) {
+                Ok(r) => r,
+                Err(e) => return Err(Error::FileRead(ignore_file, Error::lowerize(e.to_string()))),
+            };
+            let (globs, err) = Gitignore::new(&ignore_file);
+            if let Some(e) = err {
+                return Err(Error::GitIgnoreParse(
+                    p.to_path_buf(),
+                    Error::lowerize(e.to_string()),
+                ));
+            }
+            Ok(Self { inner: Some(globs) })
+        } else {
+            Ok(Self { inner: None })
+        }
+    }
+
+    /// Checks if the given filepath is included. If there is no public list,
+    /// then it will always return true.
+    pub fn is_ignored(&self, path: &Path) -> bool {
+        match &self.inner {
+            Some(ig) => ig
+                .matched_path_or_any_parents(path, path.is_dir())
+                .is_ignore(),
+            None => false,
+        }
+    }
+
+    pub fn exists(&self) -> bool {
+        self.inner.is_some()
+    }
+}
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(transparent, deny_unknown_fields)]
@@ -42,10 +91,11 @@ impl ConfigFile {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Config {
     root: PathBuf,
     data: ConfigFile,
+    ignore: IgnoreFile,
 }
 
 impl Config {
@@ -53,6 +103,7 @@ impl Config {
         let root = p.join(CONFIG_DIR);
         Ok(Self {
             data: ConfigFile::load(&root)?,
+            ignore: IgnoreFile::load(&root)?,
             root: root,
         })
     }
@@ -83,7 +134,7 @@ impl Config {
 
     pub fn get_sources(&self) -> Vec<(PathBuf, PathBuf)> {
         let mut entries = Vec::new();
-        let _ = Self::visit_dirs(&self.root, &mut entries, true);
+        let _ = Self::visit_dirs(&self.root, &mut entries, true, &self.ignore);
         entries.sort();
         // compile into pairs with relative path and full path
         entries
@@ -92,23 +143,30 @@ impl Config {
             .collect()
     }
 
-    pub fn visit_dirs(dir: &Path, cb: &mut Vec<PathBuf>, skip_hidden: bool) -> io::Result<()> {
+    pub fn visit_dirs(
+        dir: &Path,
+        cb: &mut Vec<PathBuf>,
+        skip_hidden: bool,
+        ignore: &IgnoreFile,
+    ) -> io::Result<()> {
         if dir.is_dir() {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
                 // ignore hidden files if true
-                if skip_hidden == false
-                    || entry.file_name().to_string_lossy().starts_with('.') == false
-                {
-                    if path.is_dir() {
-                        // allow this directory to be a source
-                        cb.push(entry.path());
-                        Self::visit_dirs(&path, cb, skip_hidden)?;
-                    } else {
-                        if skip_hidden == false || entry.file_name() != CONFIG_FILE {
-                            // allow this file to be a source
+                if ignore.is_ignored(&path) == false {
+                    if skip_hidden == false
+                        || entry.file_name().to_string_lossy().starts_with('.') == false
+                    {
+                        if path.is_dir() {
+                            // allow this directory to be a source
                             cb.push(entry.path());
+                            Self::visit_dirs(&path, cb, skip_hidden, ignore)?;
+                        } else {
+                            if skip_hidden == false || entry.file_name() != CONFIG_FILE {
+                                // allow this file to be a source
+                                cb.push(entry.path());
+                            }
                         }
                     }
                 }

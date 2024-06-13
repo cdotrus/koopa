@@ -27,10 +27,12 @@ pub enum Error {
     KeyContainsMoreDots(String),
     #[error("key \"{0}\" is not allowed to have a user-defined '.' character")]
     KeyContainsOneDot(String),
-    #[error("failed to read shell file {0:?}: {1}")]
+    #[error("failed to read toml file {0:?}: {1}")]
     TomlParse(PathBuf, LastError),
     #[error("failed to read file {0:?}: {1}")]
     FileRead(PathBuf, LastError),
+    #[error("failed to read ignore file {0:?}: {1}")]
+    GitIgnoreParse(PathBuf, LastError),
 }
 
 impl Error {
