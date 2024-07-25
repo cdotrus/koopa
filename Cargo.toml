@@ -1,6 +1,7 @@
 [package]
 name = "koopa"
 description = "A copy/paste tool with superpowers"
+repository = "https://github.com/chaseruskin/koopa"
 version = "1.0.0"
 edition = "2021"
 

@@ -1,6 +1,6 @@
 # `koopa`
 
-[![test](https://github.com/cdotrus/koopa/actions/workflows/test.yml/badge.svg?branch=trunk)](https://github.com/cdotrus/koopa/actions/workflows/test.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Test](https://github.com/chaseruskin/koopa/actions/workflows/test.yml/badge.svg?branch=trunk)](https://github.com/chaseruskin/koopa/actions/workflows/test.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A copy/paste tool with superpowers.
 
@@ -8,7 +8,7 @@ A copy/paste tool with superpowers.
 
 Run the following Cargo command:
 ```
-cargo install --git https://github.com/cdotrus/koopa
+cargo install --git https://github.com/chaseruskin/koopa
 ```
 
 ## Usage
